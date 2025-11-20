@@ -1,0 +1,46 @@
+---
+# Playbook to start all services using docker-compose
+- name: Start All Services
+  hosts: local
+  gather_facts: false
+  
+  vars:
+    compose_file: "{{ project_root }}/docker-compose.yml"
+  
+  tasks:
+    - name: Check if docker-compose file exists
+      stat:
+        path: "{{ compose_file }}"
+      register: compose_file_stat
+    
+    - name: Start docker containers
+      community.docker.docker_compose:
+        project_src: "{{ project_root }}"
+        state: present
+        services:
+          - postgres-user
+          - postgres-product
+          - redis
+          - elasticsearch
+          - kibana
+      when: compose_file_stat.stat.exists
+      register: docker_output
+    
+    - name: Display docker-compose status
+      debug:
+        var: docker_output
+    
+    - name: Wait for databases to be ready
+      wait_for:
+        host: localhost
+        port: "{{ item }}"
+        timeout: 60
+      loop:
+        - 5432  # PostgreSQL User
+        - 5433  # PostgreSQL Product
+        - 6379  # Redis
+        - 9200  # Elasticsearch
+      
+    - name: Display services status
+      debug:
+        msg: "All infrastructure services are running"

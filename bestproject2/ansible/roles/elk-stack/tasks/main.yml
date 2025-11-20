@@ -1,0 +1,46 @@
+---
+# Role to setup ELK stack
+- name: Ensure Elasticsearch is running
+  community.docker.docker_container_info:
+    name: bestproject2-elasticsearch-1
+  register: elasticsearch_container
+
+- name: Start Elasticsearch if not running
+  shell: |
+    cd {{ project_root }}
+    docker-compose up -d elasticsearch
+  args:
+    executable: /bin/bash
+  when: not elasticsearch_container.exists
+
+- name: Wait for Elasticsearch to be ready
+  uri:
+    url: "http://localhost:9200/_cluster/health"
+    status_code: 200
+  retries: 30
+  delay: 5
+  register: es_health
+  until: es_health.status == 200
+
+- name: Ensure Kibana is running
+  community.docker.docker_container_info:
+    name: bestproject2-kibana-1
+  register: kibana_container
+
+- name: Start Kibana if not running
+  shell: |
+    cd {{ project_root }}
+    docker-compose up -d kibana
+  args:
+    executable: /bin/bash
+  when: not kibana_container.exists
+
+- name: Wait for Kibana to be ready
+  wait_for:
+    host: localhost
+    port: 5601
+    timeout: 120
+
+- name: Display ELK stack status
+  debug:
+    msg: "ELK stack is running - Elasticsearch: http://localhost:9200, Kibana: http://localhost:5601"

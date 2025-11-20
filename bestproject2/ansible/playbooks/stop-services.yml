@@ -1,0 +1,24 @@
+---
+# Playbook to stop all services
+- name: Stop All Services
+  hosts: local
+  gather_facts: false
+  
+  tasks:
+    - name: Stop docker-compose services
+      community.docker.docker_compose:
+        project_src: "{{ project_root }}"
+        state: absent
+      register: docker_output
+    
+    - name: Kill running microservice processes
+      shell: |
+        pkill -f "uvicorn main:app" || true
+        pkill -f "user-management" || true
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+    
+    - name: Display stop status
+      debug:
+        msg: "All services have been stopped"

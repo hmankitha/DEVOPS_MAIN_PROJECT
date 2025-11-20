@@ -1,0 +1,159 @@
+---
+# ArgoCD Application for User Management Service (Go/Gin)
+# This defines how ArgoCD should deploy and manage the user-management service
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: user-management
+  namespace: argocd
+  labels:
+    app: user-management
+    service: microservices
+    language: go
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project reference
+  project: microservices
+  
+  # Source repository
+  source:
+    repoURL: https://github.com/YOUR_ORG/bestproject2.git  # Update with your repo
+    targetRevision: main
+    path: infrastructure/kubernetes/helm-charts/user-management
+    
+    # Helm values
+    helm:
+      releaseName: user-management
+      values: |
+        replicaCount: 2
+        
+        image:
+          repository: user-management
+          tag: latest
+          pullPolicy: IfNotPresent
+        
+        service:
+          type: ClusterIP
+          port: 8080
+          targetPort: 8080
+        
+        ingress:
+          enabled: true
+          className: nginx
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            nginx.ingress.kubernetes.io/rate-limit: "100"
+          hosts:
+            - host: user-management.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: user-management-tls
+              hosts:
+                - user-management.example.com
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 5
+          targetCPUUtilizationPercentage: 70
+          targetMemoryUtilizationPercentage: 80
+        
+        env:
+          - name: DB_HOST
+            value: "postgres-user"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_NAME
+            value: "usermanagement"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: password
+          - name: REDIS_HOST
+            value: "redis"
+          - name: REDIS_PORT
+            value: "6379"
+          - name: ELASTICSEARCH_URL
+            value: "http://elasticsearch:9200"
+          - name: JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: jwt-secret
+                key: secret
+          - name: JWT_EXPIRY
+            value: "24h"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        podAnnotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "8080"
+          prometheus.io/path: "/metrics"
+  
+  # Destination cluster
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: microservices
+  
+  # Sync policy
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Ignore differences
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  
+  # Health assessment
+  revisionHistoryLimit: 10

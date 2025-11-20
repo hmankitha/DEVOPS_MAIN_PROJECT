@@ -1,0 +1,41 @@
+---
+# Quick setup playbook for first-time deployment
+- name: Initial Setup - E-Commerce Microservices Platform
+  hosts: local
+  gather_facts: true
+  
+  tasks:
+    - name: Display setup information
+      debug:
+        msg: |
+          Starting initial setup for {{ project_name }}
+          Project root: {{ project_root }}
+          Environment: {{ environment }}
+    
+    - name: Check Docker installation
+      include_role:
+        name: docker
+    
+    - name: Setup databases
+      include_role:
+        name: databases
+    
+    - name: Setup ELK stack
+      include_role:
+        name: elk-stack
+    
+    - name: Display setup complete message
+      debug:
+        msg: |
+          ✅ Infrastructure setup complete!
+          
+          Services running:
+          - PostgreSQL (User): localhost:5432
+          - PostgreSQL (Product): localhost:5433
+          - Redis: localhost:6379
+          - Elasticsearch: http://localhost:9200
+          - Kibana: http://localhost:5601
+          
+          Next steps:
+          1. Deploy microservices: ansible-playbook playbooks/deploy.yml --tags microservices
+          2. Check health: ansible-playbook playbooks/deploy.yml --tags healthcheck

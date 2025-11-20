@@ -1,0 +1,39 @@
+---
+# Role to ensure Docker is installed and running
+- name: Check if Docker is installed
+  command: docker --version
+  register: docker_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Display Docker version
+  debug:
+    msg: "Docker is installed: {{ docker_check.stdout }}"
+  when: docker_check.rc == 0
+
+- name: Fail if Docker is not installed
+  fail:
+    msg: "Docker is not installed. Please install Docker Desktop for macOS"
+  when: docker_check.rc != 0
+
+- name: Check if Docker daemon is running
+  command: docker ps
+  register: docker_running
+  ignore_errors: true
+  changed_when: false
+
+- name: Fail if Docker is not running
+  fail:
+    msg: "Docker daemon is not running. Please start Docker Desktop"
+  when: docker_running.rc != 0
+
+- name: Check docker-compose version
+  command: docker-compose --version
+  register: compose_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Display docker-compose version
+  debug:
+    msg: "Docker Compose is available: {{ compose_check.stdout }}"
+  when: compose_check.rc == 0

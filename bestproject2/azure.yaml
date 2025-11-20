@@ -1,0 +1,25 @@
+name: bestproject2
+metadata:
+  template: containerapps-bicep
+infra:
+  provider: bicep
+  path: infrastructure/azure/bicep
+services:
+  product-catalog:
+    project: microservices/product-catalog
+    language: python
+    host: containerapp
+    docker:
+      path: microservices/product-catalog/Dockerfile
+  user-management:
+    project: microservices/user-management
+    language: go
+    host: containerapp
+    docker:
+      path: microservices/user-management/Dockerfile
+  order-management:
+    project: microservices/order-management
+    language: java
+    host: containerapp
+    docker:
+      path: microservices/order-management/Dockerfile

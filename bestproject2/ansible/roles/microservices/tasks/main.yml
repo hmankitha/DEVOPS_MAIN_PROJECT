@@ -1,0 +1,59 @@
+---
+# Role to manage microservices deployment
+- name: Deploy Python microservices
+  block:
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ project_root }}/microservices/product-catalog/requirements.txt"
+        virtualenv: "{{ project_root }}/microservices/product-catalog/venv"
+        virtualenv_command: python3 -m venv
+      when: "'python' in language"
+    
+    - name: Start Product Catalog service
+      shell: |
+        cd {{ project_root }}/microservices/product-catalog
+        source venv/bin/activate
+        export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/productcatalog"
+        export REDIS_URL="redis://localhost:6379"
+        export ELASTICSEARCH_URL="http://localhost:9200"
+        export JWT_SECRET="{{ jwt_secret }}"
+        nohup uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/product-catalog.log 2>&1 &
+      args:
+        executable: /bin/bash
+      when: "'python' in language and service_name == 'product-catalog'"
+  tags: [python, product-catalog]
+
+- name: Deploy Go microservices
+  block:
+    - name: Build Go service
+      shell: |
+        cd {{ project_root }}/microservices/user-management
+        go build .
+      args:
+        executable: /bin/bash
+      when: "'go' in language"
+    
+    - name: Start User Management service
+      shell: |
+        cd {{ project_root }}/microservices/user-management
+        export DB_HOST=localhost
+        export DB_PORT=5432
+        export DB_USER=postgres
+        export DB_PASSWORD=postgres
+        export DB_NAME=usermanagement
+        export JWT_SECRET="{{ jwt_secret }}"
+        export REDIS_HOST=localhost
+        export REDIS_PORT=6379
+        export ELASTICSEARCH_URL="http://localhost:9200"
+        nohup ./user-management > /tmp/user-management.log 2>&1 &
+      args:
+        executable: /bin/bash
+      when: "'go' in language and service_name == 'user-management'"
+  tags: [go, user-management]
+
+- name: Wait for service to start
+  wait_for:
+    host: localhost
+    port: "{{ service_port }}"
+    timeout: 30
+  tags: [healthcheck]

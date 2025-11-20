@@ -1,0 +1,33 @@
+name: Security - Trivy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.4.2
+
+      - name: "Trivy FS scan (repo)"
+        run: |
+          trivy fs --exit-code 1 --severity HIGH,CRITICAL --format sarif -o trivy-fs.sarif . || true
+
+      - name: "Trivy config scan (IaC: k8s, terraform, bicep)"
+        run: |
+          trivy config --exit-code 1 --severity HIGH,CRITICAL --format sarif -o trivy-config.sarif infrastructure || true
+
+      - name: "Upload SARIF results"
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .

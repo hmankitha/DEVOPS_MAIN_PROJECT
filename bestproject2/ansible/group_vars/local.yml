@@ -1,0 +1,29 @@
+---
+# Variables for local development
+docker_state: present
+compose_project_name: bestproject2
+
+# Database configuration
+postgres_databases:
+  - name: usermanagement
+    port: 5432
+  - name: productcatalog
+    port: 5433
+
+redis_port: 6379
+
+# Elasticsearch configuration
+elasticsearch_heap_size: 512m
+elasticsearch_port: 9200
+kibana_port: 5601
+
+# Microservices configuration
+python_version: "3.10"
+go_version: "1.21"
+
+# Service ports
+service_ports:
+  product_catalog: 8000
+  user_management: 8080
+  prometheus: 9090
+  grafana: 3000

@@ -1,0 +1,55 @@
+---
+# Deploy ArgoCD Playbook
+# This playbook installs and configures ArgoCD for GitOps
+
+- name: Deploy ArgoCD for GitOps
+  hosts: local
+  gather_facts: true
+  become: false
+  
+  vars:
+    deploy_applications: false  # Set to true to deploy applications immediately
+  
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg:
+          - "================================================"
+          - "🚀 ArgoCD Deployment Starting"
+          - "================================================"
+          - "Target: Kubernetes Cluster"
+          - "Namespace: argocd"
+          - "Version: v2.9.3"
+          - "================================================"
+  
+  roles:
+    - role: argocd
+      tags:
+        - argocd
+        - gitops
+  
+  post_tasks:
+    - name: Display next steps
+      debug:
+        msg:
+          - "================================================"
+          - "🎯 Next Steps:"
+          - "================================================"
+          - ""
+          - "1. Access ArgoCD UI:"
+          - "   kubectl port-forward svc/argocd-server -n argocd 8081:443 &"
+          - "   open https://localhost:8081"
+          - ""
+          - "2. Deploy applications:"
+          - "   kubectl apply -f argocd/applications/product-catalog.yaml"
+          - "   kubectl apply -f argocd/applications/user-management.yaml"
+          - ""
+          - "3. Or use App of Apps pattern:"
+          - "   kubectl apply -f argocd/applications/app-of-apps.yaml"
+          - ""
+          - "4. Monitor deployments:"
+          - "   argocd app list"
+          - "   argocd app get product-catalog"
+          - "   argocd app sync product-catalog"
+          - ""
+          - "================================================"

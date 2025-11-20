@@ -1,0 +1,40 @@
+---
+# Role to setup databases
+- name: Ensure PostgreSQL containers are running
+  community.docker.docker_container_info:
+    name: "{{ item }}"
+  loop:
+    - bestproject2-postgres-user-1
+    - bestproject2-postgres-product-1
+  register: postgres_containers
+
+- name: Start PostgreSQL containers if not running
+  shell: |
+    cd {{ project_root }}
+    docker-compose up -d postgres-user postgres-product
+  args:
+    executable: /bin/bash
+  when: postgres_containers.results | selectattr('exists', 'equalto', false) | list | length > 0
+
+- name: Ensure Redis is running
+  community.docker.docker_container_info:
+    name: bestproject2-redis-1
+  register: redis_container
+
+- name: Start Redis if not running
+  shell: |
+    cd {{ project_root }}
+    docker-compose up -d redis
+  args:
+    executable: /bin/bash
+  when: not redis_container.exists
+
+- name: Wait for databases to be ready
+  wait_for:
+    host: localhost
+    port: "{{ item }}"
+    timeout: 60
+  loop:
+    - 5432
+    - 5433
+    - 6379

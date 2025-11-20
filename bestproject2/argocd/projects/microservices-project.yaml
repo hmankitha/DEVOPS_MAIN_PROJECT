@@ -1,0 +1,98 @@
+---
+# ArgoCD AppProject for E-Commerce Microservices
+# Defines policies, permissions, and restrictions for the microservices
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: microservices
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: E-Commerce Microservices Platform
+  
+  # Source repositories
+  sourceRepos:
+    - '*'  # Allow all repositories (restrict in production)
+  
+  # Destination clusters and namespaces
+  destinations:
+    - namespace: default
+      server: https://kubernetes.default.svc
+    - namespace: microservices
+      server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
+    - namespace: elk-stack
+      server: https://kubernetes.default.svc
+  
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRole
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRoleBinding
+  
+  # Namespace resource whitelist (what can be deployed)
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: ''
+      kind: PersistentVolumeClaim
+    - group: 'apps'
+      kind: Deployment
+    - group: 'apps'
+      kind: StatefulSet
+    - group: 'apps'
+      kind: DaemonSet
+    - group: 'batch'
+      kind: Job
+    - group: 'batch'
+      kind: CronJob
+    - group: 'networking.k8s.io'
+      kind: Ingress
+    - group: 'autoscaling'
+      kind: HorizontalPodAutoscaler
+  
+  # Orphaned resources - what to do with resources not in git
+  orphanedResources:
+    warn: true
+  
+  # Sync windows - control when apps can be synced
+  syncWindows:
+    - kind: allow
+      schedule: '* * * * *'
+      duration: 24h
+      applications:
+        - '*'
+      manualSync: true
+    - kind: deny
+      schedule: '0 2 * * *'  # Deny auto-sync during maintenance window (2 AM)
+      duration: 2h
+      applications:
+        - '*'
+      manualSync: false
+  
+  # Roles for project access
+  roles:
+    - name: developer
+      description: Developers can view and sync applications
+      policies:
+        - p, proj:microservices:developer, applications, get, microservices/*, allow
+        - p, proj:microservices:developer, applications, sync, microservices/*, allow
+      groups:
+        - developers
+    
+    - name: admin
+      description: Admins have full access
+      policies:
+        - p, proj:microservices:admin, applications, *, microservices/*, allow
+      groups:
+        - admins

@@ -1,0 +1,47 @@
+{
+  "info": {
+    "name": "E-Commerce Microservices",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Product Catalog - List Products",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/v1/products",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "v1", "products"]
+        }
+      }
+    },
+    {
+      "name": "User Management - Health",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8080/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Order Management - Actuator Health",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8090/actuator/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["actuator", "health"]
+        }
+      }
+    }
+  ]
+}

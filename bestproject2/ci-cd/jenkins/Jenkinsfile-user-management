@@ -1,0 +1,206 @@
+pipeline {
+    agent any
+    
+    environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        IMAGE_NAME = 'user-management'
+        EKS_CLUSTER = 'ecommerce-prod-cluster'
+        NAMESPACE = 'ecommerce-prod'
+        SONAR_PROJECT_KEY = 'user-management'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    env.IMAGE_TAG = "${env.GIT_COMMIT_SHORT}-${env.BUILD_NUMBER}"
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                dir('microservices/user-management') {
+                    sh 'make build'
+                }
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                dir('microservices/user-management') {
+                    sh 'make test'
+                }
+            }
+            post {
+                always {
+                    junit 'microservices/user-management/test-results/**/*.xml'
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'microservices/user-management/coverage',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Code Quality Analysis') {
+            steps {
+                script {
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                            sonar-scanner \
+                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                -Dsonar.sources=microservices/user-management \
+                                -Dsonar.go.coverage.reportPaths=microservices/user-management/coverage.out
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                dir('microservices/user-management') {
+                    sh """
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Security Scan - Trivy') {
+            steps {
+                sh """
+                    trivy image --severity HIGH,CRITICAL --exit-code 1 ${IMAGE_NAME}:${IMAGE_TAG} || true
+                    trivy image --format json --output trivy-report.json ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+                archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                script {
+                    sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+                        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Update Kubernetes Manifests') {
+            steps {
+                sh """
+                    sed -i 's|image:.*|image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}|' infrastructure/kubernetes/deployments/user-management.yaml
+                    git config user.email "jenkins@ecommerce.com"
+                    git config user.name "Jenkins"
+                    git add infrastructure/kubernetes/deployments/user-management.yaml
+                    git commit -m "Update ${IMAGE_NAME} image to ${IMAGE_TAG}" || true
+                    git push origin main || true
+                """
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    sh """
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}
+                        kubectl set image deployment/${IMAGE_NAME} ${IMAGE_NAME}=${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -n ecommerce-staging
+                        kubectl rollout status deployment/${IMAGE_NAME} -n ecommerce-staging --timeout=5m
+                    """
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                dir('testing') {
+                    sh './run-integration-tests.sh staging'
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    input message: 'Deploy to Production?', ok: 'Deploy'
+                }
+                script {
+                    sh """
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}
+                        kubectl set image deployment/${IMAGE_NAME} ${IMAGE_NAME}=${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} -n ${NAMESPACE}
+                        kubectl rollout status deployment/${IMAGE_NAME} -n ${NAMESPACE} --timeout=10m
+                    """
+                }
+            }
+        }
+        
+        stage('Smoke Tests') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh """
+                        sleep 30
+                        kubectl get pods -n ${NAMESPACE} -l app=${IMAGE_NAME}
+                        ./testing/smoke-tests.sh production
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+            slackSend(
+                color: 'good',
+                message: "SUCCESS: ${env.JOB_NAME} - ${env.BUILD_NUMBER} - ${IMAGE_TAG}"
+            )
+        }
+        failure {
+            echo 'Pipeline failed!'
+            slackSend(
+                color: 'danger',
+                message: "FAILED: ${env.JOB_NAME} - ${env.BUILD_NUMBER} - ${IMAGE_TAG}"
+            )
+        }
+    }
+}

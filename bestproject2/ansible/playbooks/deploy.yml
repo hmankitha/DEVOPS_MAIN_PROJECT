@@ -1,0 +1,56 @@
+---
+# Main playbook to deploy all microservices
+- name: Deploy E-Commerce Microservices Platform
+  hosts: all
+  gather_facts: true
+  
+  tasks:
+    - name: Display deployment information
+      debug:
+        msg: "Starting deployment of {{ project_name }} in {{ environment }} environment"
+
+- name: Setup Infrastructure
+  hosts: local
+  become: false
+  roles:
+    - role: docker
+      tags: [docker, infrastructure]
+    - role: databases
+      tags: [databases, infrastructure]
+    - role: elk-stack
+      tags: [elk, monitoring, infrastructure]
+
+- name: Deploy Microservices
+  hosts: app_servers
+  become: false
+  roles:
+    - role: microservices
+      tags: [microservices, deploy]
+
+- name: Configure Monitoring
+  hosts: monitoring
+  become: false
+  roles:
+    - role: prometheus
+      tags: [prometheus, monitoring]
+    - role: grafana
+      tags: [grafana, monitoring]
+
+- name: Health Check
+  hosts: app_servers
+  become: false
+  tasks:
+    - name: Wait for services to be ready
+      uri:
+        url: "http://localhost:{{ service_port }}/health"
+        status_code: 200
+      retries: 10
+      delay: 5
+      register: health_check
+      until: health_check.status == 200
+      tags: [healthcheck]
+    
+    - name: Display service status
+      debug:
+        msg: "Service {{ service_name }} is healthy on port {{ service_port }}"
+      tags: [healthcheck]
