@@ -1,5 +1,4 @@
 package main
-package main
 
 import (
 	"database/sql"
@@ -8,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
-	_ "github.com/lib/pq"
 )
 
 func TestPostgresConnectionWithDocker(t *testing.T) {

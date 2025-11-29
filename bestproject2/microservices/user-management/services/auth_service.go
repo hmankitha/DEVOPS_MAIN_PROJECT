@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
 	"user-management/config"
 	"user-management/models"
 	"user-management/repository"
@@ -39,7 +40,7 @@ func (s *authService) Register(req *models.RegisterRequest) (*models.User, error
 	if existingUser, _ := s.userRepo.GetByEmail(req.Email); existingUser != nil {
 		return nil, fmt.Errorf("email already registered")
 	}
-	
+
 	if existingUser, _ := s.userRepo.GetByUsername(req.Username); existingUser != nil {
 		return nil, fmt.Errorf("username already taken")
 	}
@@ -69,9 +70,12 @@ func (s *authService) Register(req *models.RegisterRequest) (*models.User, error
 }
 
 func (s *authService) Login(req *models.LoginRequest) (*models.LoginResponse, error) {
-	user, err := s.userRepo.GetByEmailOrUsername(req.EmailOrUsername)
+	user, err := s.userRepo.GetByEmail(req.EmailOrUsername)
 	if err != nil {
-		return nil, fmt.Errorf("invalid credentials")
+		user, err = s.userRepo.GetByUsername(req.EmailOrUsername)
+		if err != nil {
+			return nil, fmt.Errorf("invalid credentials")
+		}
 	}
 
 	if !user.IsActive {
@@ -82,7 +86,7 @@ func (s *authService) Login(req *models.LoginRequest) (*models.LoginResponse, er
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
-	s.userRepo.UpdateLastLogin(user.ID)
+	_ = s.userRepo.UpdateLastLogin(user.ID)
 
 	accessToken, err := s.generateAccessToken(user)
 	if err != nil {
@@ -98,6 +102,7 @@ func (s *authService) Login(req *models.LoginRequest) (*models.LoginResponse, er
 		UserID:    user.ID,
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(time.Second * time.Duration(s.config.JWT.RefreshExpiry)),
+		CreatedAt: time.Now(),
 	}
 
 	if err := s.userRepo.CreateRefreshToken(refreshTokenModel); err != nil {
@@ -142,14 +147,17 @@ func (s *authService) RefreshToken(refreshToken string) (*models.LoginResponse, 
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	s.userRepo.RevokeRefreshToken(refreshToken)
+	_ = s.userRepo.RevokeRefreshToken(refreshToken)
 
 	newTokenModel := &models.RefreshToken{
 		UserID:    user.ID,
 		Token:     newRefreshToken,
 		ExpiresAt: time.Now().Add(time.Second * time.Duration(s.config.JWT.RefreshExpiry)),
+		CreatedAt: time.Now(),
 	}
-	s.userRepo.CreateRefreshToken(newTokenModel)
+	if err := s.userRepo.CreateRefreshToken(newTokenModel); err != nil {
+		return nil, fmt.Errorf("failed to store refresh token: %w", err)
+	}
 
 	return &models.LoginResponse{
 		AccessToken:  accessToken,
@@ -175,6 +183,7 @@ func (s *authService) ForgotPassword(email string) (string, error) {
 		UserID:    user.ID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
+		CreatedAt: time.Now(),
 	}
 
 	if err := s.userRepo.CreatePasswordResetToken(resetToken); err != nil {
@@ -213,7 +222,9 @@ func (s *authService) ResetPassword(token, newPassword string) error {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	s.userRepo.MarkPasswordResetTokenUsed(token)
+	if err := s.userRepo.MarkPasswordResetTokenUsed(token); err != nil {
+		_ = err
+	}
 
 	return nil
 }
