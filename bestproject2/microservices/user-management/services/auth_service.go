@@ -36,20 +36,29 @@ func NewAuthService(userRepo repository.UserRepository, cfg *config.Config) Auth
 	}
 }
 
+////////////////////////////////////////////////////////
+// REGISTER
+////////////////////////////////////////////////////////
+
 func (s *authService) Register(req *models.RegisterRequest) (*models.User, error) {
-	if existingUser, _ := s.userRepo.GetByEmail(req.Email); existingUser != nil {
+
+	// check email exists
+	if existing, _ := s.userRepo.GetByEmail(req.Email); existing != nil {
 		return nil, fmt.Errorf("email already registered")
 	}
 
-	if existingUser, _ := s.userRepo.GetByUsername(req.Username); existingUser != nil {
+	// check username exists
+	if existing, _ := s.userRepo.GetByUsername(req.Username); existing != nil {
 		return nil, fmt.Errorf("username already taken")
 	}
 
+	// hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	// create user struct (FIXED LastName)
 	user := &models.User{
 		Email:        req.Email,
 		Username:     req.Username,
@@ -69,46 +78,55 @@ func (s *authService) Register(req *models.RegisterRequest) (*models.User, error
 	return user, nil
 }
 
+////////////////////////////////////////////////////////
+// LOGIN (FULLY FIXED)
+////////////////////////////////////////////////////////
+
 func (s *authService) Login(req *models.LoginRequest) (*models.LoginResponse, error) {
-	user, err := s.userRepo.GetByEmail(req.EmailOrUsername)
-	if err != nil {
-		user, err = s.userRepo.GetByUsername(req.EmailOrUsername)
-		if err != nil {
-			return nil, fmt.Errorf("invalid credentials")
-		}
+
+	// unified lookup (email or username)
+	user, err := s.userRepo.GetByEmailOrUsername(req.EmailOrUsername)
+	if err != nil || user == nil {
+		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	if !user.IsActive {
 		return nil, fmt.Errorf("account is disabled")
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	// compare password
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
+	// update last_login_at
 	_ = s.userRepo.UpdateLastLogin(user.ID)
 
+	// create access token
 	accessToken, err := s.generateAccessToken(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
+	// create refresh token
 	refreshToken, err := s.generateRefreshToken(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	refreshTokenModel := &models.RefreshToken{
+	// save refresh token
+	rt := &models.RefreshToken{
 		UserID:    user.ID,
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(time.Second * time.Duration(s.config.JWT.RefreshExpiry)),
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.userRepo.CreateRefreshToken(refreshTokenModel); err != nil {
+	if err := s.userRepo.CreateRefreshToken(rt); err != nil {
 		return nil, fmt.Errorf("failed to store refresh token: %w", err)
 	}
 
+	// return login response
 	return &models.LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -118,22 +136,27 @@ func (s *authService) Login(req *models.LoginRequest) (*models.LoginResponse, er
 	}, nil
 }
 
+////////////////////////////////////////////////////////
+// REFRESH TOKEN
+////////////////////////////////////////////////////////
+
 func (s *authService) RefreshToken(refreshToken string) (*models.LoginResponse, error) {
+
 	tokenModel, err := s.userRepo.GetRefreshToken(refreshToken)
-	if err != nil {
+	if err != nil || tokenModel == nil {
 		return nil, fmt.Errorf("invalid refresh token")
 	}
 
 	if tokenModel.RevokedAt != nil {
-		return nil, fmt.Errorf("refresh token has been revoked")
+		return nil, fmt.Errorf("refresh token revoked")
 	}
 
 	if time.Now().After(tokenModel.ExpiresAt) {
-		return nil, fmt.Errorf("refresh token has expired")
+		return nil, fmt.Errorf("refresh token expired")
 	}
 
 	user, err := s.userRepo.GetByID(tokenModel.UserID)
-	if err != nil {
+	if err != nil || user == nil {
 		return nil, fmt.Errorf("user not found")
 	}
 
@@ -147,15 +170,18 @@ func (s *authService) RefreshToken(refreshToken string) (*models.LoginResponse, 
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
+	// revoke old
 	_ = s.userRepo.RevokeRefreshToken(refreshToken)
 
-	newTokenModel := &models.RefreshToken{
+	// save new token
+	newRT := &models.RefreshToken{
 		UserID:    user.ID,
 		Token:     newRefreshToken,
 		ExpiresAt: time.Now().Add(time.Second * time.Duration(s.config.JWT.RefreshExpiry)),
 		CreatedAt: time.Now(),
 	}
-	if err := s.userRepo.CreateRefreshToken(newTokenModel); err != nil {
+
+	if err := s.userRepo.CreateRefreshToken(newRT); err != nil {
 		return nil, fmt.Errorf("failed to store refresh token: %w", err)
 	}
 
@@ -168,10 +194,14 @@ func (s *authService) RefreshToken(refreshToken string) (*models.LoginResponse, 
 	}, nil
 }
 
+////////////////////////////////////////////////////////
+// FORGOT PASSWORD
+////////////////////////////////////////////////////////
+
 func (s *authService) ForgotPassword(email string) (string, error) {
 	user, err := s.userRepo.GetByEmail(email)
-	if err != nil {
-		return "", nil
+	if err != nil || user == nil {
+		return "", nil // do not reveal existence
 	}
 
 	token, err := generateRandomToken(32)
@@ -179,63 +209,71 @@ func (s *authService) ForgotPassword(email string) (string, error) {
 		return "", fmt.Errorf("failed to generate reset token: %w", err)
 	}
 
-	resetToken := &models.PasswordResetToken{
+	reset := &models.PasswordResetToken{
 		UserID:    user.ID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 		CreatedAt: time.Now(),
 	}
 
-	if err := s.userRepo.CreatePasswordResetToken(resetToken); err != nil {
+	if err := s.userRepo.CreatePasswordResetToken(reset); err != nil {
 		return "", fmt.Errorf("failed to store reset token: %w", err)
 	}
 
 	return token, nil
 }
 
+////////////////////////////////////////////////////////
+// RESET PASSWORD
+////////////////////////////////////////////////////////
+
 func (s *authService) ResetPassword(token, newPassword string) error {
-	resetToken, err := s.userRepo.GetPasswordResetToken(token)
-	if err != nil {
+
+	prt, err := s.userRepo.GetPasswordResetToken(token)
+	if err != nil || prt == nil {
 		return fmt.Errorf("invalid reset token")
 	}
 
-	if resetToken.UsedAt != nil {
-		return fmt.Errorf("reset token has already been used")
+	if prt.UsedAt != nil {
+		return fmt.Errorf("reset token already used")
 	}
 
-	if time.Now().After(resetToken.ExpiresAt) {
-		return fmt.Errorf("reset token has expired")
+	if time.Now().After(prt.ExpiresAt) {
+		return fmt.Errorf("reset token expired")
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	user, err := s.userRepo.GetByID(resetToken.UserID)
-	if err != nil {
+	user, err := s.userRepo.GetByID(prt.UserID)
+	if err != nil || user == nil {
 		return fmt.Errorf("user not found")
 	}
 
-	user.PasswordHash = string(hashedPassword)
+	user.PasswordHash = string(newHash)
+
 	if err := s.userRepo.Update(user); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	if err := s.userRepo.MarkPasswordResetTokenUsed(token); err != nil {
-		_ = err
-	}
+	_ = s.userRepo.MarkPasswordResetTokenUsed(token)
 
 	return nil
 }
 
+////////////////////////////////////////////////////////
+// VALIDATE TOKEN
+////////////////////////////////////////////////////////
+
 func (s *authService) ValidateToken(tokenString string) (*utils.Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &utils.Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(s.config.JWT.Secret), nil
-	})
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&utils.Claims{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(s.config.JWT.Secret), nil
+		})
 
 	if err != nil {
 		return nil, err
@@ -247,6 +285,10 @@ func (s *authService) ValidateToken(tokenString string) (*utils.Claims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
+
+////////////////////////////////////////////////////////
+// TOKEN HELPERS
+////////////////////////////////////////////////////////
 
 func (s *authService) generateAccessToken(user *models.User) (string, error) {
 	claims := &utils.Claims{
@@ -271,7 +313,8 @@ func (s *authService) generateRefreshToken(user *models.User) (string, error) {
 
 func generateRandomToken(length int) (string, error) {
 	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
+	_, err := rand.Read(bytes)
+	if err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil

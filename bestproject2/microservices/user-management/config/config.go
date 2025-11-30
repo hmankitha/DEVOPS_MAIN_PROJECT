@@ -33,10 +33,10 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	Secret           string
-	AccessExpiry     int
-	RefreshExpiry    int
-	RefreshSecret    string
+	Secret        string
+	AccessExpiry  int
+	RefreshExpiry int
+	RefreshSecret string
 }
 
 type RedisConfig struct {
