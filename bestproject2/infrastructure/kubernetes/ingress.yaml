@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  namespace: ecommerce-dev
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: localhost
+    http:
+      paths:
+      - path: /api/v1/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: order-management
+            port:
+              number: 9000
+
+      - path: /health/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: order-management
+            port:
+              number: 9000
+
+      - path: /user
+        pathType: Prefix
+        backend:
+          service:
+            name: user-management
+            port:
+              number: 8080
+
+      - path: /products
+        pathType: Prefix
+        backend:
+          service:
+            name: product-catalog
+            port:
+              number: 8000

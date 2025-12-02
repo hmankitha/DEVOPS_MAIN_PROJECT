@@ -1,9 +1,5 @@
 package main
-import (
-    "fmt"
-    "golang.org/x/crypto/bcrypt"
-)
-func main() {
-    hash, _ := bcrypt.GenerateFromPassword([]byte("Test@12345"), bcrypt.DefaultCost)
-    fmt.Println(string(hash))
-}
+
+// This file is intentionally empty.
+// Do NOT add another main() function here.
+// It exists only to support Docker multi-stage builds.

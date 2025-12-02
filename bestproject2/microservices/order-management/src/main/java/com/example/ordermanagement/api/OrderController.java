@@ -15,30 +15,32 @@ import java.net.URI;
 @RequestMapping("/api/v1/orders")
 @Tag(name = "Orders", description = "Order management endpoints")
 public class OrderController {
-  private final OrderService orderService;
 
-  public OrderController(OrderService orderService) {
-    this.orderService = orderService;
-  }
+    private final OrderService orderService;
 
-  @Operation(summary = "Create a new order")
-  @PostMapping
-  public ResponseEntity<Order> create(@Valid @RequestBody CreateOrderRequest req) {
-    Order saved = orderService.createOrder(req);
-    return ResponseEntity.created(URI.create("/api/v1/orders/" + saved.getId())).body(saved);
-  }
+    public OrderController(OrderService orderService) {
+        this.orderService = orderService;
+    }
 
-  @Operation(summary = "Get order by id")
-  @GetMapping("/{id}")
-  public ResponseEntity<Order> get(@PathVariable Long id) {
-    Order o = orderService.getOrder(id);
-    return (o == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(o);
-  }
+    @Operation(summary = "Create a new order")
+    @PostMapping
+    public ResponseEntity<Order> create(@Valid @RequestBody CreateOrderRequest req) {
+        Order saved = orderService.createOrder(req);
+        return ResponseEntity.created(URI.create("/api/v1/orders/" + saved.getId())).body(saved);
+    }
 
-  @Operation(summary = "Cancel order")
-  @PostMapping("/{id}/cancel")
-  public ResponseEntity<Order> cancel(@PathVariable Long id) {
-    Order o = orderService.cancelOrder(id);
-    return (o == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(o);
-  }
+    @Operation(summary = "Get order by id")
+    // Only match numeric IDs — prevents conflict with /health
+    @GetMapping("/{id:\\d+}")
+    public ResponseEntity<Order> getOrder(@PathVariable("id") Long id) {
+        Order o = orderService.getOrder(id);
+        return (o == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(o);
+    }
+
+    @Operation(summary = "Cancel order")
+    @PostMapping("/{id:\\d+}/cancel")
+    public ResponseEntity<Order> cancel(@PathVariable Long id) {
+        Order o = orderService.cancelOrder(id);
+        return (o == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(o);
+    }
 }
